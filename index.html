@@ -1,13 +1,14 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CM Finance — Controle Financeiro Pessoal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root{
   --bg:#F6F8FA;
@@ -230,8 +231,8 @@ tbody tr:hover{background:#FAFBFD;}
     <div class="login-error" id="authError"></div>
     <form id="authForm">
       <div class="field">
-        <label>Usuário</label>
-        <input type="text" id="authUser" autocomplete="username" placeholder="ex: joao">
+        <label>E-mail</label>
+        <input type="email" id="authUser" autocomplete="email" placeholder="voce@exemplo.com">
       </div>
       <div class="field">
         <label>Senha</label>
@@ -468,13 +469,14 @@ tbody tr:hover{background:#FAFBFD;}
 (function(){
 "use strict";
 
+/* ---------------- Configuração Supabase ---------------- */
+// Pegue no painel do Supabase em: Project Settings > API
+const SUPABASE_URL = 'https://sqiaybnujdpxnrzpuiap.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_-TIzgYVkKqTCr8S1oiCa4w_kU14tpVU';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 var CATEGORIAS = ["Moradia","Alimentação","Transporte","Saúde","Lazer","Assinaturas","Vestuário","Educação","Contas Fixas","Outros"];
 
-/* ---------------- Storage helpers ---------------- */
-var USERS_KEY = "cmf_users";
-function loadUsers(){ try{ return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }catch(e){ return {}; } }
-function saveUsers(u){ localStorage.setItem(USERS_KEY, JSON.stringify(u)); }
-function dataKey(username){ return "cmf_data_" + username; }
 function emptyData(){
   return {
     debito: [],
@@ -483,15 +485,53 @@ function emptyData(){
     orcamentos: {}
   };
 }
-function loadData(username){
-  try{ var d = JSON.parse(localStorage.getItem(dataKey(username))); return d || emptyData(); }
-  catch(e){ return emptyData(); }
+
+/* ---------------- Nuvem: Carregar e Salvar ---------------- */
+async function loadUserData(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('user_finances')
+      .select('data')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Erro ao buscar dados:', error);
+      return emptyData();
+    }
+
+    if (!data) {
+      const initial = emptyData();
+      await supabase.from('user_finances').insert([{ user_id: userId, data: initial }]);
+      return initial;
+    }
+
+    return data.data || emptyData();
+  } catch(e) {
+    console.error(e);
+    return emptyData();
+  }
 }
-function saveData(){ localStorage.setItem(dataKey(state.username), JSON.stringify(state.data)); }
+
+async function saveData(){
+  if (!state.userId) return;
+  try {
+    await supabase
+      .from('user_finances')
+      .upsert({
+        user_id: state.userId,
+        data: state.data,
+        updated_at: new Date().toISOString()
+      });
+  } catch(e) {
+    console.error("Erro ao sincronizar dados na nuvem:", e);
+  }
+}
+
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 /* ---------------- State ---------------- */
-var state = { username:null, data:null, isRegisterMode:false };
+var state = { username:null, userId:null, data:null, isRegisterMode:false };
 var donutChart=null, lineChart=null;
 
 function fmtBRL(v){
@@ -519,45 +559,67 @@ authToggleLink.addEventListener('click', function(){
   authError.classList.remove('show');
 });
 
-authForm.addEventListener('submit', function(e){
+authForm.addEventListener('submit', async function(e){
   e.preventDefault();
-  var user = document.getElementById('authUser').value.trim().toLowerCase();
+  var email = document.getElementById('authUser').value.trim().toLowerCase();
   var pass = document.getElementById('authPass').value;
   authError.classList.remove('show');
-  if(!user || !pass){ showAuthError("Preencha usuário e senha."); return; }
-  var users = loadUsers();
-  if(state.isRegisterMode){
-    if(users[user]){ showAuthError("Esse usuário já existe. Faça login."); return; }
-    users[user] = { password: btoa(unescape(encodeURIComponent(pass))) };
-    saveUsers(users);
-    loginAs(user);
-  } else {
-    if(!users[user]){ showAuthError("Usuário não encontrado."); return; }
-    if(users[user].password !== btoa(unescape(encodeURIComponent(pass)))){ showAuthError("Senha incorreta."); return; }
-    loginAs(user);
+  
+  if(!email || !pass){ showAuthError("Preencha e-mail e senha."); return; }
+  
+  authSubmit.disabled = true;
+  authSubmit.textContent = state.isRegisterMode ? "Cadastrando..." : "Entrando...";
+
+  try {
+    if(state.isRegisterMode){
+      const { data, error } = await supabase.auth.signUp({ email, password: pass });
+      if(error) throw error;
+      if(data.user){
+        await loginAs(data.user);
+      } else {
+        showAuthError("Verifique seu e-mail para confirmar o cadastro.");
+      }
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      if(error) throw error;
+      await loginAs(data.user);
+    }
+  } catch(err) {
+    if (err.message.includes('Invalid login credentials')) {
+      showAuthError("E-mail ou senha incorretos.");
+    } else {
+      showAuthError(err.message);
+    }
+  } finally {
+    authSubmit.disabled = false;
+    authSubmit.textContent = state.isRegisterMode ? "Criar conta" : "Entrar";
   }
 });
+
 function showAuthError(msg){ authError.textContent = msg; authError.classList.add('show'); }
 
-function loginAs(username){
-  state.username = username;
-  state.data = loadData(username);
-  sessionStorage.setItem('cmf_session', username);
+async function loginAs(user){
+  state.userId = user.id;
+  state.username = user.email.split('@')[0];
+  state.data = await loadUserData(user.id);
+  
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').classList.add('active');
-  document.getElementById('chipUsername').textContent = username;
-  document.getElementById('avatarLetter').textContent = username.charAt(0).toUpperCase();
+  document.getElementById('chipUsername').textContent = state.username;
+  document.getElementById('avatarLetter').textContent = state.username.charAt(0).toUpperCase();
   boot();
 }
-document.getElementById('logoutBtn').addEventListener('click', function(){
-  sessionStorage.removeItem('cmf_session');
+
+document.getElementById('logoutBtn').addEventListener('click', async function(){
+  await supabase.auth.signOut();
   location.reload();
 });
 
-/* try restore session */
-(function tryRestore(){
-  var s = sessionStorage.getItem('cmf_session');
-  if(s){ var users = loadUsers(); if(users[s]) loginAs(s); }
+(async function tryRestore(){
+  const { data: { session } } = await supabase.auth.getSession();
+  if(session && session.user){
+    await loginAs(session.user);
+  }
 })();
 
 /* ---------------- Nav ---------------- */
@@ -568,12 +630,14 @@ document.querySelectorAll('.nav-item').forEach(function(el){
     var tab = el.getAttribute('data-tab');
     document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
     document.getElementById('tab-'+tab).classList.add('active');
-    var titles = {dashboard:['Dashboard','Visão geral das suas finanças'],
+    var titles = {
+      dashboard:['Dashboard','Visão geral das suas finanças'],
       debito:['Débito & PIX','Movimentações à vista da sua conta'],
       cartao:['Cartão de Crédito','Faturas, limites e parcelamentos'],
       ticket:['Ticket Alimentação','Carteira isolada de VA/VR'],
       historico:['Histórico','Todos os lançamentos, unificados'],
-      orcamentos:['Orçamentos','Tetos de gastos por categoria']};
+      orcamentos:['Orçamentos','Tetos de gastos por categoria']
+    };
     document.getElementById('pageTitle').textContent = titles[tab][0];
     document.getElementById('pageSub').textContent = titles[tab][1];
     renderAll();
@@ -601,6 +665,7 @@ function computeMesFatura(dataCompra, diaFechamento, offsetMonths){
 }
 function allInstallments(){
   var list = [];
+  if(!state.data || !state.data.cartao || !state.data.cartao.compras) return list;
   state.data.cartao.compras.forEach(function(compra){
     for(var i=0;i<compra.parcelas;i++){
       list.push({
@@ -630,11 +695,13 @@ function limiteUsado(){
 
 /* ---------------- Saldo geral ---------------- */
 function saldoDebito(){
+  if(!state.data || !state.data.debito) return 0;
   return state.data.debito.reduce(function(acc,t){ return acc + (t.tipo==='entrada'? t.valor : -t.valor); },0);
 }
 
 /* ---------------- Rendering ---------------- */
 function renderAll(){
+  if (!state.data) return;
   renderDashboard();
   renderDebito();
   renderCartao();
@@ -663,7 +730,6 @@ function renderDashboard(){
     document.getElementById('sumEconomiaDelta').textContent = 'sem receitas registradas';
   }
 
-  // donut: categorias combinando debito saidas + cartao parcelas + ticket gastos
   var catTotals = {};
   state.data.debito.filter(function(t){return t.tipo==='saida';}).forEach(function(t){ catTotals[t.categoria]=(catTotals[t.categoria]||0)+t.valor; });
   allInstallments().forEach(function(i){ catTotals[i.categoria]=(catTotals[i.categoria]||0)+i.valor; });
@@ -683,7 +749,6 @@ function renderDashboard(){
       options:{ plugins:{legend:{position:'bottom',labels:{boxWidth:9,font:{size:11},color:'#6B7280'}}}, cutout:'68%' } });
   }
 
-  // line: evolução saldo no mes atual
   var ym = ymOf(todayISO());
   var daysInMonth = new Date(parseInt(ym.split('-')[0]), parseInt(ym.split('-')[1]),0).getDate();
   var dailyDelta = new Array(daysInMonth+1).fill(0);
@@ -776,6 +841,7 @@ function renderTicket(){
   });
 }
 function ticketSaldoAtual(){
+  if(!state.data || !state.data.ticket || !state.data.ticket.lancamentos) return 0;
   return state.data.ticket.lancamentos.reduce(function(acc,t){ return acc + (t.tipo==='recarga'? t.valor : -t.valor); },0);
 }
 
