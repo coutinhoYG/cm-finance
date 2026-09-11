@@ -198,6 +198,134 @@ tbody tr:hover{background:#FAFBFD;}
 .slideover-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
 .close-x{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);}
 
+/* ---------- WIDGET DO ROBÔ ASSISTENTE ---------- */
+#bot-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
+  color: #fff;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+#bot-fab:hover { transform: scale(1.06); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5); }
+
+#bot-window {
+  display: none;
+  position: fixed;
+  bottom: 88px;
+  right: 24px;
+  width: 350px;
+  max-width: calc(100vw - 32px);
+  height: 480px;
+  max-height: calc(100vh - 120px);
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow-pop);
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 9999;
+  border: 1px solid var(--border);
+}
+
+#bot-header {
+  background: var(--surface);
+  color: var(--ink);
+  padding: 14px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+#bot-header .bot-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#bot-header .bot-title i { color: var(--blue); }
+#bot-header button {
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 16px;
+  cursor: pointer;
+}
+#bot-header button:hover { color: var(--ink); }
+
+#bot-messages {
+  flex: 1;
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #F9FAFC;
+  font-size: 13px;
+}
+
+.bot-msg {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 10px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.bot-msg.user {
+  background: var(--blue);
+  color: white;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+.bot-msg.model {
+  background: var(--surface);
+  color: var(--ink);
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+#bot-input-area {
+  display: flex;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  gap: 8px;
+}
+#bot-input-area input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  outline: none;
+  background: #FBFCFD;
+}
+#bot-input-area input:focus { border-color: var(--blue); background: #fff; }
+#bot-input-area button {
+  background: var(--blue);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* responsive */
 @media(max-width:980px){
   .content-grid{grid-template-columns:1fr;}
@@ -214,6 +342,8 @@ tbody tr:hover{background:#FAFBFD;}
   .main{padding:18px 16px 40px;}
   .summary-grid{grid-template-columns:1fr 1fr;}
   .form-grid{grid-template-columns:1fr;}
+  #bot-window { right: 16px; bottom: 84px; }
+  #bot-fab { right: 16px; bottom: 16px; }
 }
 </style>
 </head>
@@ -465,12 +595,47 @@ tbody tr:hover{background:#FAFBFD;}
   </form>
 </div>
 
+<!-- ===================== WIDGET DO ROBÔ ===================== -->
+<button id="bot-fab" onclick="toggleBotChat()" aria-label="Abrir assistente financeiro">
+  <i class="fa-solid fa-robot"></i>
+</button>
+
+<div id="bot-window">
+  <div id="bot-header">
+    <div class="bot-title">
+      <i class="fa-solid fa-robot"></i>
+      <span>Assistente Financeiro</span>
+    </div>
+    <button onclick="toggleBotChat()"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div id="bot-messages">
+    <div class="bot-msg model">Olá! Sou seu assistente de finanças. Pergunte sobre seus gastos, faturas ou saldo!</div>
+  </div>
+  <div id="bot-input-area">
+    <input type="text" id="bot-text-input" placeholder="Pergunte ao assistente..." onkeydown="if(event.key==='Enter') sendBotMessage()">
+    <button onclick="sendBotMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+  </div>
+</div>
+
 <script>
+/* ---------------- Configuração Gemini AI ---------------- */
+const GEMINI_API_KEY = "AQ.Ab8RN6L5cocfg2aCE8PL_H5sy9BRS3LjngGbbtLkDj2GGC1BIQ";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const botChatHistory = [];
+
+function toggleBotChat() {
+  const win = document.getElementById("bot-window");
+  const isOpen = win.style.display === "flex";
+  win.style.display = isOpen ? "none" : "flex";
+  if (!isOpen) document.getElementById("bot-text-input").focus();
+}
+
+window.toggleBotChat = toggleBotChat;
+
 (function(){
 "use strict";
 
 /* ---------------- Configuração Supabase ---------------- */
-// Pegue no painel do Supabase em: Project Settings > API
 const SUPABASE_URL = 'https://sqiaybnujdpxnrzpuiap.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_-TIzgYVkKqTCr8S1oiCa4w_kU14tpVU';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1015,7 +1180,7 @@ document.getElementById('formUniversal').addEventListener('submit', function(e){
   saveData(); e.target.reset(); closeSlide(); renderAll();
 });
 
-/* ---------------- helpers ---------------- */
+/* ---------------- Helpers & Boot ---------------- */
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function fmtDate(iso){ var p = iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 function mesLabel(ym){
@@ -1027,6 +1192,72 @@ function boot(){
   fillCategorySelects();
   renderAll();
 }
+
+/* ---------------- Integração Assistente Gemini ---------------- */
+window.sendBotMessage = async function(){
+  const input = document.getElementById("bot-text-input");
+  const container = document.getElementById("bot-messages");
+  const text = input.value.trim();
+
+  if (!text) return;
+
+  container.innerHTML += `<div class="bot-msg user">${escapeHtml(text)}</div>`;
+  input.value = "";
+  container.scrollTop = container.scrollHeight;
+
+  botChatHistory.push({ role: "user", parts: [{ text: text }] });
+
+  const loadingId = "bot-loading-" + Date.now();
+  container.innerHTML += `<div class="bot-msg model" id="${loadingId}"><i class="fa-solid fa-spinner fa-spin"></i> Analisando suas finanças...</div>`;
+  container.scrollTop = container.scrollHeight;
+
+  // Contexto financeiro dinâmico injetado no prompt de sistema
+  const resumoFinanceiro = state.data ? {
+    saldoGeralDisponivel: fmtBRL(saldoDebito()),
+    faturaAtualCartao: fmtBRL(faturaAtualTotal()),
+    saldoTicket: fmtBRL(ticketSaldoAtual()),
+    limiteCartaoDisponivel: fmtBRL(Math.max(0, (state.data.cartao.limiteTotal || 0) - limiteUsado())),
+    orcamentos: state.data.orcamentos || {},
+    ultimosLancamentosDebito: (state.data.debito || []).slice(-5),
+    ultimosLancamentosTicket: (state.data.ticket.lancamentos || []).slice(-5)
+  } : "Nenhum dado carregado ainda.";
+
+  const systemInstruction = `Você é o assistente virtual financeiro oficial integrado ao app 'YG Finance'.
+Seja amigável, direto e responda em português com foco em clareza financeira.
+Você tem acesso aos seguintes dados atuais do usuário:
+${JSON.stringify(resumoFinanceiro, null, 2)}
+
+Use esses números para responder dúvidas sobre quanto o usuário gastou, quanto tem de saldo, projeções e dicas para economizar.`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: botChatHistory
+      })
+    });
+
+    const data = await response.json();
+    const loadingEl = document.getElementById(loadingId);
+
+    if (data.error) {
+      loadingEl.textContent = "Erro na API: " + data.error.message;
+      return;
+    }
+
+    const reply = data.candidates[0].content.parts[0].text;
+    loadingEl.textContent = reply;
+    botChatHistory.push({ role: "model", parts: [{ text: reply }] });
+
+  } catch (err) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.textContent = "Não consegui me conectar aos servidores do Gemini.";
+  } finally {
+    container.scrollTop = container.scrollHeight;
+  }
+};
 
 })();
 </script>
